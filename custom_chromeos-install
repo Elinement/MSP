@@ -1,0 +1,78 @@
+#!/bin/bash
+#
+# updated 7/8/2019 DD
+#
+# This script is a custom chromeos-install script that runs from a Physical Cloning Recovery USB disk.  This script gets renamed to "chromeos-install" and
+# placed in the /usr/sbin folder of the ROOT-A partition of your Physical Cloning Recovery USB disk, replacing the original chromeos-install script.
+# 
+# If a prepared "EVIDENCE" drive is attached to a Chromebook/Chromebox prior to running this script, then it creates a forensic dd clone
+# of the internal Chromebook/Chromebox HD writing out to an evidence drive previously GPT partitioned with an "EVIDENCE" partition created.
+# "EVIDENCE" partition on destination drive should be created with prep_evidence_drive.sh script.
+# 
+
+# If we're not running as root, restart as root.
+if [ ${UID:-$(id -u)} -ne 0 ]; then
+  exec sudo "$0" "$@"
+fi
+
+# Load functions and constants for chromeos-install.
+. /usr/share/misc/chromeos-common.sh || exit 1
+. /usr/sbin/write_gpt.sh || exit 1
+
+
+
+main() {
+
+# Set firmware flags to enable USB and legacy boot.
+# crossystem dev_boot_legacy=1 dev_boot_usb=1 clear_tpm_owner_done=0 clear_tpm_owner_request=0
+  crossystem dev_boot_legacy=1 dev_boot_usb=1
+
+ 
+# Set variable for the root (USB boot) device. 
+ ROOTDEV=$(rootdev -d)
+
+# Use ROOTDEV variable to find and set a variable for the internal HD device containing the STATE partition, such as /dev/mmcblk0p1.
+ SRC=$(cgpt find -l STATE | grep -v ${ROOTDEV})
+ # echo -n "Source: "
+ # echo ${SRC}
+
+# Set variable for block device of SRC. This removes the partition identifier from the above command, leaving /dev/mmcblk0.
+ BLOCK_SRC=$(get_block_dev_from_partition_dev ${SRC})
+ # echo -n "Source Block Device: "
+ # echo ${BLOCK_SRC}
+
+# Identify and set a variable for the attached output drive containing a previously GPT paritition evidence disk containing an EVIDENCE partition, such as /dev/sdb1.
+ DST=$(cgpt find -l EVIDENCE)
+ # echo -n "Destination: "
+ # echo ${DST}
+ 
+# Set variable for block device of DST. This removes the partition identifier from the above command, leaving /dev/sdb.
+ BLOCK_DST=$(get_block_dev_from_partition_dev ${DST})
+ # echo -n "Destination Block Device: "
+ # echo ${BLOCK_DST} 
+
+ 
+#
+# Time to clone the source disk to the attached destination disk and finish!
+#
+ echo "Cloning " ${BLOCK_SRC} " to " ${BLOCK_DST} 
+ 
+ dd conv=sync,noerror bs=2M if=${BLOCK_SRC} of=${BLOCK_DST} oflag=dsync status=progress 
+ 
+ 
+ # All done. Force data to disk before we declare done.
+ sync
+ 
+ echo "------------------------------------------------------------"
+ echo ""
+ echo "Cloning process complete."
+ echo "Please shutdown and remove the modified ChromeOS Recovery USB and the newly cloned evidence USB device."
+ echo ""
+
+ 
+ sleep 5
+ exit
+
+}
+
+main "$@"
